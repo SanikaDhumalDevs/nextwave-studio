@@ -1,12 +1,34 @@
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
+import mongoose from 'mongoose';
+
+// 1. Create the Database Schema
+const leadSchema = new mongoose.Schema({
+  name: String,
+  phone: String,
+  email: String,
+  packageType: String,
+  details: String,
+  date: { type: Date, default: Date.now }
+});
+
+// Prevent error if model already exists
+const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { name, phone, email, packageType, details } = body;
 
-    // 1. Configure the email transporter using your Gmail credentials
+    // 2. Connect to MongoDB Atlas using your environment variable
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(process.env.MONGODB_URI as string);
+    }
+
+    // 3. Save the Lead to the Database
+    await Lead.create({ name, phone, email, packageType, details });
+
+    // 4. Send the Email Alert to your Gmail
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -15,32 +37,24 @@ export async function POST(request: Request) {
       },
     });
 
-    // 2. Set up the email content
-    const mailOptions = {
+    await transporter.sendMail({
       from: process.env.EMAIL_USER,
-      to: process.env.EMAIL_USER, // Sends the email to yourself
-      subject: `🚨 New Project Lead: ${name} - NextWave Studio`,
+      to: process.env.EMAIL_USER, 
+      subject: `🚨 New Lead: ${name} - NextWave Studio`,
       html: `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-          <h2 style="color: #06b6d4;">New Project Inquiry 🚀</h2>
-          <p><strong>Name:</strong> ${name}</p>
-          <p><strong>Phone:</strong> ${phone}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Package Interested:</strong> ${packageType}</p>
-          <p><strong>Project Details:</strong></p>
-          <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px;">
-            <p>${details}</p>
-          </div>
-        </div>
-      `,
-    };
+        <h3>New Project Inquiry 🚀</h3>
+        <p><b>Name:</b> ${name}</p>
+        <p><b>Phone:</b> ${phone}</p>
+        <p><b>Email:</b> ${email}</p>
+        <p><b>Package:</b> ${packageType}</p>
+        <p><b>Details:</b> ${details}</p>
+      `
+    });
 
-    // 3. Send the email
-    await transporter.sendMail(mailOptions);
+    return NextResponse.json({ message: "Lead saved and email sent!" }, { status: 200 });
 
-    return NextResponse.json({ message: "Email sent successfully!" }, { status: 200 });
   } catch (error) {
-    console.error("Failed to send email:", error);
-    return NextResponse.json({ message: "Failed to send email." }, { status: 500 });
+    console.error(error);
+    return NextResponse.json({ message: "Failed to process lead." }, { status: 500 });
   }
 }
